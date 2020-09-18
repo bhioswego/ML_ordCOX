@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#NO RISK,epochs =1000, c_index=0.7182000286163972 remove log_var[i] seems as no difference.
+#epochs =1000, c_index=0.7182000286163972 remove log_var[i] seems as no difference.
 """
 Demonstrates how the partial likelihood from a Cox proportional hazards
 model can be used in a NN loss function. An example shows how a NN with
@@ -40,11 +40,13 @@ from keras.utils.vis_utils import plot_model
 from keras.initializers import Constant
 from keras.layers import  Layer
 from sklearn.preprocessing import minmax_scale
+import tensorflow.compat.v1 as tf1
+tf1.disable_v2_behavior()
 ##############################
 #kidtx = pd.read_csv('brca_Surv_data_stage_age.csv',usecols=['MEgreenyellow',	'MEgreen','MEturquoise'	,'MEmagenta','MEbrown',	'MEred',	'MEpink',	'MEblack',	'MEpurple',	'MEblue',	'MEyellow',	'MEgrey','erged_data5_stage','erged_data6_Age','V1','erged_data33'])
-kidtx = pd.read_csv('brca_Surv_data_methylation_mRNA_lmqcm.csv')
-dataX1 =kidtx.drop(["Unnamed: 0","ID","V1","erged_data33"], axis = 1).values
-y = np.transpose(np.array((kidtx["V1"], kidtx["erged_data33"]))) # V1=time; erged_data33=status
+#kidtx = pd.read_csv('brca_Surv_data_methylation_mRNA_lmqcm.csv')
+#dataX1 =kidtx.drop(["Unnamed: 0","ID","V1","erged_data33"], axis = 1).values
+#y = np.transpose(np.array((kidtx["V1"], kidtx["erged_data33"]))) # V1=time; erged_data33=status
 
 kidtx = pd.read_csv('brca_Surv_data_methylation_mRNA_all_lmqcm.csv')
 dataX1 =kidtx.drop(["Unnamed: 0","ID","V2.x","V3.x"], axis = 1).values
@@ -691,158 +693,162 @@ class CustomMultiLossLayer(Layer):
    
 #############################################################################################################
 
-
+c_index10=[]
+for ij in range(10):
 ####################################################################################################################    
-seed = 63
-np.random.seed(seed)
-kf = KFold(n_splits=10, shuffle=True, random_state=seed)
-ypred=[]
-ypred_train=[]
-xtest_original=[]
-status_new=[]
-time_new=[]
-index2=[]
-iFold = 0
-for train_index, val_index in kf.split(x):
-    iFold = iFold+1
-#    train_x, test_x, train_y, test_y,= X[train_index], X[val_index], y[train_index], y[val_index] # 这里的X_train，y_train为第iFold个fold的训练集，X_val，y_val为validation set
-    x_train, x_test, y_train, y_test, ytime_train, ytime_test, ystatus_train, ystatus_test, ystatus2_train, ystatus2_test =\
-        dataX[train_index], dataX[val_index], y[train_index], y[val_index], ytime[train_index], ytime[val_index], ystatus[train_index],ystatus[val_index],\
-                           ystatus2[train_index],ystatus2[val_index]
+    seed = 63
+    np.random.seed(seed)
+    kf = KFold(n_splits=10, shuffle=True, random_state=seed)
+    ypred=[]
+    ypred_train=[]
+    xtest_original=[]
+    status_new=[]
+    time_new=[]
+    index2=[]
+    iFold = 0
+    for train_index, val_index in kf.split(x):
+        iFold = iFold+1
+    #    train_x, test_x, train_y, test_y,= X[train_index], X[val_index], y[train_index], y[val_index] # 这里的X_train，y_train为第iFold个fold的训练集，X_val，y_val为validation set
+        x_train, x_test, y_train, y_test, ytime_train, ytime_test, ystatus_train, ystatus_test, ystatus2_train, ystatus2_test =\
+            dataX[train_index], dataX[val_index], y[train_index], y[val_index], ytime[train_index], ytime[val_index], ystatus[train_index],ystatus[val_index],\
+                               ystatus2[train_index],ystatus2[val_index]
+        
+        input_dim =x_train.shape[2]
+        output_dimM = y_train.shape[1]
+        output_dimA = 1
+        n1 = y_train.shape[0]
+        
+    #    k_n = theano.shared(np.asarray(n,dtype=theano.config.floatX),borrow=True)
+        k_n = theano.shared(n1,borrow=True)
+        k_ytime_train = theano.shared(ytime_train,borrow=True)
+        k_ystatus_train = theano.shared(ystatus_train,borrow=True)
+        N = theano.shared(n1,borrow=True)
+        R_matrix = np.zeros([n1, n1], dtype=int)
+        R_matrix =theano.shared(R_matrix,borrow=True)
+    ##############################################3    
+        
+        Y_hazard0=y_train[:,0]
+        Y_survival=y_train[:,1]
     
-    input_dim =x_train.shape[2]
-    output_dimM = y_train.shape[1]
-    output_dimA = 1
-    n1 = y_train.shape[0]
+    #    Y_hazard1M=tf.reshape(Y_hazard0, [-1, Y_train.shape[0],1])
+    #    Y_hazard=Y_hazard1M[-1,:,-1]
+        
+        t0, H0 = unique_set(Y_hazard0) # t:unique time. H original index.
+        
+        actual_event_index = np.nonzero(Y_survival)[0]
+        H0 = [list(set(h) & set(actual_event_index)) for h in H0]
+        ordinal_n = np.asarray([len(h) for h in H0])
+        Hj=sum(H0[0:],[])
+        
+        k_ordinal_H = theano.shared(np.asarray(Hj),borrow=True)
+        k_ordinal_t = theano.shared(t0,borrow=True)
+        k_ordinal_n = theano.shared(ordinal_n,borrow=True)
+     #########################################################################################################################   
+     #############################################################################################################################    
+    #    input_dim0 =theano.shared(input_dim,borrow=True)
+    # Build model structure
+        # gene Only
+        gene_input = Input(name='gene_input', shape=(1,input_dim))
+    #    out1=Bidirectional(LSTM(55,activation='linear',return_sequences=True,kernel_initializer=glorot_uniform(),kernel_regularizer=l2(reg),activity_regularizer=l2(0.001)), merge_mode='concat')(title_input)
+        out_gene=Bidirectional(LSTM(100,return_sequences=True), merge_mode='concat')(gene_input)
+    #    out2=TimeDistributed(Dense(50, activation='tanh'))(out1)
+    #    out_gene=Bidirectional(LSTM(20))(out2)
+        
+    #    auxiliary_output = Dense(1, activation='linear', name='aux_output')(out_gene)  
+    #    GRU(100,  activation='linear', return_sequences=True)(title_input)
+         # clinic Only
+        clinic_input = Input(name='clinic_input', shape=(1,input_dim))
+        
+        out_clinic=Bidirectional(LSTM(100,activation='tanh',return_sequences=False), merge_mode='concat')(clinic_input )
+        auxiliary_output = Dense(1,activation='tanh', name='aux_output')(out_clinic) #sigmoid
+    #    out_clinic=Bidirectional(LSTM(100,return_sequences=False), merge_mode='concat')(clinic_input )
+    #    
+        out21=TimeDistributed(Dense(50, activation='tanh'))( out_gene)
+        out22=Bidirectional(LSTM(20,return_sequences=False))(out21)
+    #    model.add(TimeDistributed(Dense(50, activation='tanh')))
+    #    model.add(Bidirectional(LSTM(20)))
+        # combined with GRU output
+    #    input_ = Input(shape=(12,8))
+       
+    #    com = Concatenate(axis=1)([out_gene, out_clinic])
+       
+         
+        out222=Dense(20, activation='linear')(out22)
     
-#    k_n = theano.shared(np.asarray(n,dtype=theano.config.floatX),borrow=True)
-    k_n = theano.shared(n1,borrow=True)
-    k_ytime_train = theano.shared(ytime_train,borrow=True)
-    k_ystatus_train = theano.shared(ystatus_train,borrow=True)
-    N = theano.shared(n1,borrow=True)
-    R_matrix = np.zeros([n1, n1], dtype=int)
-    R_matrix =theano.shared(R_matrix,borrow=True)
-##############################################3    
+        
+    #    GRU(50, activation='tanh', return_sequences=False)(out1)
+        out3=Dropout(0.1)(out22)
+        main_output= Dense(1,activation='linear',name='main_output')(out3)
+    #    main_output1=main_output[:,-1,:]
+    #    auxiliary_output1=auxiliary_output[:,-1,:]
+    #    y1_true = Input(shape=(output_dimM,), name='y1_true')
+    #    y2_true = Input(shape=(output_dimA,), name='y2_true')
+    #    model = Model(inputs=[gene_input,clinic_input],outputs=[main_output, auxiliary_output])
+        y1_true = Input(shape=(2,), name='y1_true')
+    #    y1_true = Input(shape=(output_dimM,), name='y1_true')
+        y2_true = Input(shape=(2,), name='y2_true')
+        out = CustomMultiLossLayer(nb_outputs=2)([y1_true, y2_true, main_output, auxiliary_output])
+        model =Model([gene_input,clinic_input,y1_true, y2_true], out)
+        model.summary()
+        model.compile(optimizer='adam', loss=None)
+        
+         #取某一层的输出为输出新建为model，采用函数模型
+        dense1_layer_model = Model(inputs=model.input, outputs=[model.get_layer('main_output').output,model.get_layer('aux_output').output])
+    #    dense1_layer_model = Model(inputs=model.input, outputs=model.get_layer('main_output').output)
+        dense1_layer_model.summary()
+        
+        hist = model.fit([x_train,x_train, y_train,  ystatus2_train], batch_size = n1, epochs =1000)
+        
+        import pylab
+        pylab.plot(hist.history['loss'])
+        print([np.exp(K.get_value(log_var[0]))**0.5 for log_var in model.layers[-1].log_vars])
+        
+        predicted_main, predicted_aux = dense1_layer_model.predict([x_test,x_test,y_test, ystatus2_test],verbose=1)
+        prediction =predicted_main+0*predicted_aux
+        
+        c_index2=c_index3( np.asarray(ytime_test),np.asarray(prediction), np.asarray(ystatus_test))
+        
+        print( c_index2)
+        
+    #############################################################################################################################    
+       
+        ypred.extend(prediction)
+    #    ypred_train.extend(prediction_train_median)
+    #    xtest_original.extend(x_test)
+        index2.extend(val_index)
+        status_new.extend(ystatus[val_index])
+        time_new.extend(ytime[val_index])
+    #    print(ypred.shape)
+        
+        K.clear_session()
+        tf1.reset_default_graph()
+        print(iFold)
+        nowTime = datetime.datetime.now()
+        print("nowTime: ",nowTime)
+    np.savetxt("brca_prediction1204_18lstm2222_epoch400_drop01_resnet.csv", ypred, delimiter=",")
+    np.savetxt("brca_ytime_test1204_18lstm2222_epoch400_drop01_resnet.csv", time_new, delimiter=",")
+    np.savetxt("brca_ystatus_test1204_18lstm2222_epoch400_drop01_resnet.csv", status_new, delimiter=",")
+    np.savetxt("brca_ypred_train_median1204_18lstm2222_epoch400_drop01_resnet.csv", ypred_train, delimiter=",")
     
-    Y_hazard0=y_train[:,0]
-    Y_survival=y_train[:,1]
-
-#    Y_hazard1M=tf.reshape(Y_hazard0, [-1, Y_train.shape[0],1])
-#    Y_hazard=Y_hazard1M[-1,:,-1]
+    df = pd.read_csv("brca_prediction1204_18lstm2222_epoch400_drop01_resnet.csv",header=None)    
+    month=np.asarray(pd.read_csv("brca_ytime_test1204_18lstm2222_epoch400_drop01_resnet.csv",header=None)) 
+    status=np.asarray(pd.read_csv("brca_ystatus_test1204_18lstm2222_epoch400_drop01_resnet.csv",header=None)) 
     
-    t0, H0 = unique_set(Y_hazard0) # t:unique time. H original index.
     
-    actual_event_index = np.nonzero(Y_survival)[0]
-    H0 = [list(set(h) & set(actual_event_index)) for h in H0]
-    ordinal_n = np.asarray([len(h) for h in H0])
-    Hj=sum(H0[0:],[])
+    #df=ypred
+    #month=time_new
+    #status=status_new
+    #df1 = pd.read_csv("WAVE_preTest_scores.csv")    
+    #dataset_init = np.asarray(df1)    # if only 1 column
+    #dataX, dataY = create_interval_dataset(df, 1)    #这里的输入数据来源是csv文件
     
-    k_ordinal_H = theano.shared(np.asarray(Hj),borrow=True)
-    k_ordinal_t = theano.shared(t0,borrow=True)
-    k_ordinal_n = theano.shared(ordinal_n,borrow=True)
- #########################################################################################################################   
- #############################################################################################################################    
-#    input_dim0 =theano.shared(input_dim,borrow=True)
-# Build model structure
-    # gene Only
-    gene_input = Input(name='gene_input', shape=(1,input_dim))
-#    out1=Bidirectional(LSTM(55,activation='linear',return_sequences=True,kernel_initializer=glorot_uniform(),kernel_regularizer=l2(reg),activity_regularizer=l2(0.001)), merge_mode='concat')(title_input)
-    out_gene=Bidirectional(LSTM(100,return_sequences=True), merge_mode='concat')(gene_input)
-#    out2=TimeDistributed(Dense(50, activation='tanh'))(out1)
-#    out_gene=Bidirectional(LSTM(20))(out2)
-    
-#    auxiliary_output = Dense(1, activation='linear', name='aux_output')(out_gene)  
-#    GRU(100,  activation='linear', return_sequences=True)(title_input)
-     # clinic Only
-    clinic_input = Input(name='clinic_input', shape=(1,input_dim))
-    
-    out_clinic=Bidirectional(LSTM(100,activation='tanh',return_sequences=False), merge_mode='concat')(clinic_input )
-    auxiliary_output = Dense(1,activation='tanh', name='aux_output')(out_clinic) #sigmoid
-#    out_clinic=Bidirectional(LSTM(100,return_sequences=False), merge_mode='concat')(clinic_input )
-#    
-    out21=TimeDistributed(Dense(50, activation='tanh'))( out_gene)
-    out22=Bidirectional(LSTM(20,return_sequences=False))(out21)
-#    model.add(TimeDistributed(Dense(50, activation='tanh')))
-#    model.add(Bidirectional(LSTM(20)))
-    # combined with GRU output
-#    input_ = Input(shape=(12,8))
-   
-#    com = Concatenate(axis=1)([out_gene, out_clinic])
-   
-     
-    out222=Dense(20, activation='linear')(out22)
-
-    
-#    GRU(50, activation='tanh', return_sequences=False)(out1)
-    out3=Dropout(0.1)(out22)
-    main_output= Dense(1,activation='linear',name='main_output')(out3)
-#    main_output1=main_output[:,-1,:]
-#    auxiliary_output1=auxiliary_output[:,-1,:]
-#    y1_true = Input(shape=(output_dimM,), name='y1_true')
-#    y2_true = Input(shape=(output_dimA,), name='y2_true')
-#    model = Model(inputs=[gene_input,clinic_input],outputs=[main_output, auxiliary_output])
-    y1_true = Input(shape=(2,), name='y1_true')
-#    y1_true = Input(shape=(output_dimM,), name='y1_true')
-    y2_true = Input(shape=(2,), name='y2_true')
-    out = CustomMultiLossLayer(nb_outputs=2)([y1_true, y2_true, main_output, auxiliary_output])
-    model =Model([gene_input,clinic_input,y1_true, y2_true], out)
-    model.summary()
-    model.compile(optimizer='adam', loss=None)
-    
-     #取某一层的输出为输出新建为model，采用函数模型
-    dense1_layer_model = Model(inputs=model.input, outputs=[model.get_layer('main_output').output,model.get_layer('aux_output').output])
-#    dense1_layer_model = Model(inputs=model.input, outputs=model.get_layer('main_output').output)
-    dense1_layer_model.summary()
-    
-    hist = model.fit([x_train,x_train, y_train,  ystatus2_train], batch_size = n1, epochs =1000)
-    
-    import pylab
-    pylab.plot(hist.history['loss'])
-    print([np.exp(K.get_value(log_var[0]))**0.5 for log_var in model.layers[-1].log_vars])
-    
-
-    prediction =predicted_main+0*predicted_aux
-    
-    c_index2=c_index3( np.asarray(ytime_test),np.asarray(prediction), np.asarray(ystatus_test))
-    
-    print( c_index2)
-    
-#############################################################################################################################    
-   
-    ypred.extend(prediction)
-#    ypred_train.extend(prediction_train_median)
-#    xtest_original.extend(x_test)
-    index2.extend(val_index)
-    status_new.extend(ystatus[val_index])
-    time_new.extend(ytime[val_index])
-#    print(ypred.shape)
-    
-    K.clear_session()
-    tf.reset_default_graph()
-    print(iFold)
-    nowTime = datetime.datetime.now()
-    print("nowTime: ",nowTime)
-np.savetxt("brca_prediction1204_18lstm2222_epoch400_drop01_resnet.csv", ypred, delimiter=",")
-np.savetxt("brca_ytime_test1204_18lstm2222_epoch400_drop01_resnet.csv", time_new, delimiter=",")
-np.savetxt("brca_ystatus_test1204_18lstm2222_epoch400_drop01_resnet.csv", status_new, delimiter=",")
-np.savetxt("brca_ypred_train_median1204_18lstm2222_epoch400_drop01_resnet.csv", ypred_train, delimiter=",")
-
-df = pd.read_csv("brca_prediction1204_18lstm2222_epoch400_drop01_resnet.csv",header=None)    
-month=np.asarray(pd.read_csv("brca_ytime_test1204_18lstm2222_epoch400_drop01_resnet.csv",header=None)) 
-status=np.asarray(pd.read_csv("brca_ystatus_test1204_18lstm2222_epoch400_drop01_resnet.csv",header=None)) 
-
-
-#df=ypred
-#month=time_new
-#status=status_new
-#df1 = pd.read_csv("WAVE_preTest_scores.csv")    
-#dataset_init = np.asarray(df1)    # if only 1 column
-#dataX, dataY = create_interval_dataset(df, 1)    #这里的输入数据来源是csv文件
-
-risk=np.asarray(df)
-c_indices_mlp = c_index3(month, risk,status)
-#np.savetxt("c_indices_nn827.txt", c_indices_mlp, delimiter=",")
-np.save("c_indices",c_indices_mlp) 
-print(c_indices_mlp)
-data_a=np.load('c_indices.npy')
-aa=0
+    risk=np.asarray(df)
+    c_indices_lstm = c_index3(month, risk,status)
+    #np.savetxt("c_indices_nn827.txt", c_indices_mlp, delimiter=",")
+    np.save("c_indices",c_indices_lstm) 
+    print(c_indices_lstm)
+    data_a=np.load('c_indices.npy')
+    c_index10.append(c_indices_lstm)
+    print(ij)
+np.savetxt("c_index10.csv", c_index10, delimiter=",")
+print(sum(c_index10)/10)
